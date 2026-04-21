@@ -1,0 +1,31 @@
+name: Launch EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  launch-ec2:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Launch EC2 instance
+        run: |
+          aws ec2 run-instances \
+            --image-id ami-0c02fb55956c7d316 \
+            --count 1 \
+            --instance-type t2.micro \
+            --key-name final-project-key \
+            --security-group-ids sg-094610383db1f44fa \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=GitHubActionsInstance}]'
