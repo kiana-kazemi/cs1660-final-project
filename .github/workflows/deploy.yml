@@ -25,7 +25,7 @@ jobs:
           aws ec2 run-instances \
             --image-id ami-0c02fb55956c7d316 \
             --count 1 \
-            --instance-type t2.micro \
+            --instance-type t3.micro \
             --key-name final-project-key \
             --security-group-ids sg-094610383db1f44fa \
             --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=GitHubActionsInstance}]'
