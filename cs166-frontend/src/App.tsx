@@ -2,19 +2,66 @@ import { useState, type FormEvent } from 'react'
 import './App.css'
 
 type ChatMessage = {
-  id: number
+  id: string
   role: 'assistant' | 'user'
   content: string
 }
 
+const awsApiUrl = import.meta.env.VITE_AWS_API_URL as string | undefined
+
+const parseAssistantContent = (payload: unknown): string | null => {
+  if (typeof payload === 'string') {
+    return payload
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const candidate = payload as {
+    response?: unknown
+    message?: unknown
+    reply?: unknown
+    body?: unknown
+    output?: unknown
+    status?: unknown
+  }
+
+  if (typeof candidate.response === 'string') {
+    return candidate.response
+  }
+
+  if (typeof candidate.message === 'string') {
+    return candidate.message
+  }
+
+  if (typeof candidate.reply === 'string') {
+    return candidate.reply
+  }
+
+  if (typeof candidate.body === 'string') {
+    return candidate.body
+  }
+
+  if (typeof candidate.output === 'string') {
+    return candidate.output
+  }
+
+  if (typeof candidate.status === 'string') {
+    return `Request status: ${candidate.status}`
+  }
+
+  return null
+}
+
 const initialMessages: ChatMessage[] = [
   {
-    id: 1,
+    id: '1',
     role: 'assistant',
     content: 'Hello. This is a barebones assistant response.',
   },
   {
-    id: 2,
+    id: '2',
     role: 'user',
     content: 'And this is a barebones user response.',
   },
@@ -23,20 +70,100 @@ const initialMessages: ChatMessage[] = [
 function App() {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
+  const [isSending, setIsSending] = useState(false)
+  const [lastCurlPreview, setLastCurlPreview] = useState('')
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     const content = draft.trim()
-    if (!content) {
+    if (!content || isSending) {
       return
     }
 
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      { id: Date.now(), role: 'user', content },
-    ])
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+    }
+
+    const nextMessages = [...messages, userMessage]
+
+    setMessages(nextMessages)
     setDraft('')
+
+    if (!awsApiUrl) {
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content:
+            'Missing VITE_AWS_API_URL in your environment. Add it to a .env file and restart Vite.',
+        },
+      ])
+      return
+    }
+
+    setIsSending(true)
+
+    try {
+      const requestJson = JSON.stringify({ query: content })
+      const escapedForSingleQuotes = requestJson.replace(/'/g, "'\\''")
+      const curlPreview = `curl -X POST "${awsApiUrl}" -H "Content-Type: application/json" -d '${escapedForSingleQuotes}'`
+
+      console.log(`About to call AWS API:\n${curlPreview}`)
+      setLastCurlPreview(curlPreview)
+
+      const response = await fetch(awsApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestJson,
+      })
+
+
+      const responseText = await response.text()
+
+      if (!response.ok) {
+        throw new Error(responseText || `Request failed with ${response.status}`)
+      }
+
+      let parsedPayload: unknown = responseText
+      try {
+        parsedPayload = responseText ? JSON.parse(responseText) : null
+      } catch {
+        parsedPayload = responseText
+      }
+
+      const assistantContent =
+        parseAssistantContent(parsedPayload) ||
+        'Request succeeded, but no assistant response was found in the API payload.'
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: assistantContent,
+        },
+      ])
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown network error'
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `API error: ${errorMessage}`,
+        },
+      ])
+    } finally {
+      setIsSending(false)
+    }
   }
 
   return (
@@ -67,9 +194,19 @@ function App() {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Type a message"
             rows={3}
+            disabled={isSending}
           />
-          <button type="submit">Send</button>
+          <button type="submit" disabled={isSending || !draft.trim()}>
+            {isSending ? 'Sending...' : 'Send'}
+          </button>
         </form>
+
+        {lastCurlPreview ? (
+          <div className="request-preview" aria-live="polite">
+            <div className="label">Last Request</div>
+            <pre>{lastCurlPreview}</pre>
+          </div>
+        ) : null}
       </section>
     </main>
   )
