@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useAuth } from 'react-oidc-context'
 import './App.css'
 
 type ChatMessage = {
@@ -68,10 +69,43 @@ const initialMessages: ChatMessage[] = [
 ]
 
 function App() {
+  const auth = useAuth()
+  const cognitoClientId = import.meta.env.VITE_COGNITO_CLIENT_ID as
+    | string
+    | undefined
+  const cognitoDomain = import.meta.env.VITE_COGNITO_DOMAIN as
+    | string
+    | undefined
+  const logoutUri =
+    (import.meta.env.VITE_COGNITO_LOGOUT_REDIRECT_URI as string | undefined) ||
+    `${window.location.origin}/`
+
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [lastCurlPreview, setLastCurlPreview] = useState('')
+
+  useEffect(() => {
+    if (auth.isLoading || auth.isAuthenticated) {
+      return
+    }
+
+    const shouldRelogin = sessionStorage.getItem('forceRelogin') === '1'
+    if (shouldRelogin) {
+      sessionStorage.removeItem('forceRelogin')
+      void auth.signinRedirect()
+    }
+  }, [auth])
+
+  const signOutRedirect = () => {
+    if (!cognitoClientId || !cognitoDomain) {
+      void auth.removeUser()
+      return
+    }
+
+    sessionStorage.setItem('forceRelogin', '1')
+    window.location.href = `${cognitoDomain}/logout?client_id=${cognitoClientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -115,11 +149,17 @@ function App() {
       console.log(`About to call AWS API:\n${curlPreview}`)
       setLastCurlPreview(curlPreview)
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      if (auth.user?.access_token) {
+        headers.Authorization = `Bearer ${auth.user.access_token}`
+      }
+
       const response = await fetch(awsApiUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: requestJson,
       })
 
@@ -166,9 +206,41 @@ function App() {
     }
   }
 
+  if (auth.isLoading) {
+    return <main className="app-shell">Loading sign-in...</main>
+  }
+
+  if (auth.error) {
+    return (
+      <main className="app-shell">Auth error: {auth.error.message}</main>
+    )
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <main className="app-shell">
+        <section className="chat-card" aria-label="Authentication">
+          <h2>Sign in required</h2>
+          <p>Use Cognito login to access the chat app.</p>
+          <button type="button" onClick={() => void auth.signinRedirect()}>
+            Sign in
+          </button>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="app-shell">
       <section className="chat-card" aria-label="Chat transcript">
+        <div className="message assistant">
+          <div className="label">Signed in as</div>
+          <p>{auth.user?.profile.email || auth.user?.profile.sub || 'Unknown user'}</p>
+          <button type="button" onClick={signOutRedirect}>
+            Sign out
+          </button>
+        </div>
+
         <div className="message assistant">
           <div className="label">Assistant</div>
           <p>{messages[0].content}</p>
