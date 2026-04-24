@@ -1,6 +1,13 @@
 {
   "dependencies": {
+    "-": "^0.0.1",
     "@tailwindcss/vite": "^4.2.3",
+    "amazon": "^0.0.0",
+    "cognito": "^0.0.1",
+    "identity": "^4.11.4",
+    "js": "^0.1.0",
+    "oidc-client-ts": "^3.5.0",
+    "react-oidc-context": "^3.3.1",
     "tailwindcss": "^4.2.3"
   }
 }

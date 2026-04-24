@@ -20,6 +20,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cs166-frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: cs166-frontend
+        run: npm ci
+
+      - name: Build frontend with app env
+        working-directory: cs166-frontend
+        env:
+          VITE_AWS_API_URL: ${{ secrets.VITE_AWS_API_URL }}
+          VITE_COGNITO_DOMAIN: ${{ secrets.VITE_COGNITO_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+          VITE_COGNITO_REDIRECT_URI: ${{ secrets.VITE_COGNITO_REDIRECT_URI }}
+          VITE_COGNITO_LOGOUT_REDIRECT_URI: ${{ secrets.VITE_COGNITO_LOGOUT_REDIRECT_URI }}
+        run: npm run build
+
       - name: Check if EC2 instance exists
         id: check_ec2
         run: |
@@ -37,12 +58,146 @@ jobs:
           fi
 
       - name: Launch EC2 instance (if not exists)
+        id: launch_ec2
         if: steps.check_ec2.outputs.exists == 'false'
         run: |
-          aws ec2 run-instances \
+          INSTANCE_ID=$(aws ec2 run-instances \
             --image-id ami-0c02fb55956c7d316 \
             --count 1 \
             --instance-type t3.micro \
             --key-name final-project-key \
             --security-group-ids sg-094610383db1f44fa \
-            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=GitHubActionsInstance}]'
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=GitHubActionsInstance}]' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+      - name: Start EC2 instance (if exists)
+        id: start_ec2
+        if: steps.check_ec2.outputs.exists == 'true'
+        run: |
+          aws ec2 start-instances --instance-ids "${{ steps.check_ec2.outputs.instance_id }}" || true
+          echo "instance_id=${{ steps.check_ec2.outputs.instance_id }}" >> $GITHUB_OUTPUT
+
+      - name: Resolve active instance
+        id: active_instance
+        run: |
+          INSTANCE_ID="${{ steps.launch_ec2.outputs.instance_id }}"
+
+          if [ -z "$INSTANCE_ID" ]; then
+            INSTANCE_ID="${{ steps.start_ec2.outputs.instance_id }}"
+          fi
+
+          if [ -z "$INSTANCE_ID" ]; then
+            INSTANCE_ID=$(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=GitHubActionsInstance" \
+                        "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+              --query "Reservations[].Instances[].InstanceId" \
+              --output text)
+          fi
+
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for instance running
+        run: |
+          aws ec2 wait instance-running --instance-ids "${{ steps.active_instance.outputs.instance_id }}"
+
+      - name: Read active instance endpoint
+        id: endpoint
+        run: |
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids "${{ steps.active_instance.outputs.instance_id }}" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+
+          PUBLIC_DNS=$(aws ec2 describe-instances \
+            --instance-ids "${{ steps.active_instance.outputs.instance_id }}" \
+            --query "Reservations[0].Instances[0].PublicDnsName" \
+            --output text)
+
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+          echo "public_dns=$PUBLIC_DNS" >> $GITHUB_OUTPUT
+
+      - name: Validate deploy secrets
+        run: |
+          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "Missing required secret: EC2_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Wait for SSH
+        env:
+          SSH_USER_INPUT: ${{ vars.EC2_SSH_USER }}
+        run: |
+          SSH_USER="$SSH_USER_INPUT"
+          if [ -z "$SSH_USER" ]; then
+            SSH_USER="ec2-user"
+          fi
+
+          for i in {1..30}; do
+            if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+              -i ~/.ssh/deploy_key \
+              "$SSH_USER@${{ steps.endpoint.outputs.public_ip }}" \
+              "echo ok" >/dev/null 2>&1; then
+              echo "SSH is ready"
+              exit 0
+            fi
+
+            echo "Waiting for SSH... ($i/30)"
+            sleep 10
+          done
+
+          echo "SSH did not become ready in time"
+          exit 1
+
+      - name: Upload frontend build
+        env:
+          SSH_USER_INPUT: ${{ vars.EC2_SSH_USER }}
+        run: |
+          SSH_USER="$SSH_USER_INPUT"
+          if [ -z "$SSH_USER" ]; then
+            SSH_USER="ec2-user"
+          fi
+
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key -r cs166-frontend/dist \
+            "$SSH_USER@${{ steps.endpoint.outputs.public_ip }}:/tmp/cs166-frontend-dist"
+
+      - name: Deploy frontend on EC2
+        env:
+          SSH_USER_INPUT: ${{ vars.EC2_SSH_USER }}
+        run: |
+          SSH_USER="$SSH_USER_INPUT"
+          if [ -z "$SSH_USER" ]; then
+            SSH_USER="ec2-user"
+          fi
+
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
+            "$SSH_USER@${{ steps.endpoint.outputs.public_ip }}" << 'EOF'
+          set -e
+
+          if command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y nginx
+          else
+            sudo yum install -y nginx
+          fi
+
+          sudo mkdir -p /usr/share/nginx/html
+          sudo rm -rf /usr/share/nginx/html/*
+          sudo cp -r /tmp/cs166-frontend-dist/* /usr/share/nginx/html/
+          sudo chown -R nginx:nginx /usr/share/nginx/html || true
+          sudo systemctl enable nginx
+          sudo systemctl restart nginx
+          EOF
+
+      - name: Show active instance endpoint
+        run: |
+          echo "Instance ID: ${{ steps.active_instance.outputs.instance_id }}"
+          echo "Public DNS: ${{ steps.endpoint.outputs.public_dns }}"
+          echo "Public IP: ${{ steps.endpoint.outputs.public_ip }}"
