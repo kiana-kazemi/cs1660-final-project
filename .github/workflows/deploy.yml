@@ -157,6 +157,19 @@ jobs:
           echo "SSH did not become ready in time"
           exit 1
 
+      - name: Clean old build on EC2
+        env:
+          SSH_USER_INPUT: ${{ vars.EC2_SSH_USER }}
+        run: |
+          SSH_USER="$SSH_USER_INPUT"
+          if [ -z "$SSH_USER" ]; then
+            SSH_USER="ec2-user"
+          fi
+
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
+            "$SSH_USER@${{ steps.endpoint.outputs.public_ip }}" \
+            "sudo rm -rf /tmp/cs166-frontend-dist"
+
       - name: Upload frontend build
         env:
           SSH_USER_INPUT: ${{ vars.EC2_SSH_USER }}
@@ -191,6 +204,7 @@ jobs:
           sudo mkdir -p /usr/share/nginx/html
           sudo rm -rf /usr/share/nginx/html/*
           sudo cp -r /tmp/cs166-frontend-dist/* /usr/share/nginx/html/
+          sudo rm -rf /tmp/cs166-frontend-dist
           sudo chown -R nginx:nginx /usr/share/nginx/html || true
           sudo systemctl enable nginx
           sudo systemctl restart nginx
