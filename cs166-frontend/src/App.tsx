@@ -103,6 +103,9 @@ function App() {
       return
     }
 
+    localStorage.clear();
+    sessionStorage.clear();
+
     sessionStorage.setItem('forceRelogin', '1')
     window.location.href = `${cognitoDomain}/logout?client_id=${cognitoClientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
   }
