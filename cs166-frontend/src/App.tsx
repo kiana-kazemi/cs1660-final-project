@@ -360,17 +360,7 @@ function App() {
           </button>
         </div>
 
-        <div className="message assistant">
-          <div className="label">Assistant</div>
-          <p>{messages[0].content}</p>
-        </div>
-
-        <div className="message user">
-          <div className="label">User</div>
-          <p>{messages[1].content}</p>
-        </div>
-
-        {messages.slice(2).map((message) => (
+        {messages.map((message) => (
           <div key={message.id} className={`message ${message.role}`}>
             <div className="label">
               {message.role === 'assistant' ? 'Assistant' : 'User'}
