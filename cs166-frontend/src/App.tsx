@@ -36,6 +36,30 @@ const extractAssistantText = (payload: unknown): string | null => {
   const record = payload as Record<string, unknown>
 
   if (
+    'bedrock' in record &&
+    record.bedrock &&
+    typeof record.bedrock === 'object'
+  ) {
+    const bedrockRecord = record.bedrock as Record<string, unknown>
+
+    if (
+      'Output' in bedrockRecord &&
+      bedrockRecord.Output &&
+      typeof bedrockRecord.Output === 'object' &&
+      'Text' in (bedrockRecord.Output as Record<string, unknown>) &&
+      typeof (bedrockRecord.Output as Record<string, unknown>).Text ===
+        'string'
+    ) {
+      return (bedrockRecord.Output as { Text: string }).Text
+    }
+
+    const extracted = extractAssistantText(bedrockRecord)
+    if (extracted) {
+      return extracted
+    }
+  }
+
+  if (
     'Output' in record &&
     record.Output &&
     typeof record.Output === 'object' &&
@@ -133,6 +157,48 @@ function App() {
   const [isSending, setIsSending] = useState(false)
 
   useEffect(() => {
+  if (!auth.isAuthenticated) return
+  if (!awsApiUrl) return
+  if (!auth.user?.access_token) return
+
+  // If awsApiUrl is your POST /query endpoint, derive /history
+  const historyUrl = import.meta.env.VITE_HISTORY_URL
+
+  void (async () => {
+    try {
+      const res = await fetch(historyUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${auth.user!.access_token}`,
+        },
+      })
+
+      const text = await res.text()
+      if (!res.ok) {
+        console.error('History request failed:', res.status, text)
+        return
+      }
+
+      const data = text ? (JSON.parse(text) as { items?: Array<any> }) : {}
+      const items = Array.isArray(data.items) ? data.items : []
+
+      const loadedMessages: ChatMessage[] = items
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+          id: String(item.ts ?? crypto.randomUUID()),
+          role: item.role === 'assistant' ? 'assistant' : 'user',
+          content: String(item.content ?? ''),
+        }))
+
+      // Keep your initial assistant greeting (messages[0]) and append history
+      setMessages((current) => [current[0], ...loadedMessages])
+    } catch (err) {
+      console.error('History load error:', err)
+    }
+  })()
+}, [auth.isAuthenticated, auth.user?.access_token, awsApiUrl])
+
+  useEffect(() => {
     if (auth.isLoading || auth.isAuthenticated) {
       return
     }
@@ -192,7 +258,11 @@ function App() {
     setIsSending(true)
 
     try {
-      const requestJson = JSON.stringify({ query: content })
+      const userId =
+        auth.user?.access_token ||
+        'unknown-user'
+
+      const requestJson = JSON.stringify({ query: content, UserId: userId })
       const escapedForSingleQuotes = requestJson.replace(/'/g, "'\\''")
       const curlPreview = `curl -X POST "${awsApiUrl}" -H "Content-Type: application/json" -d '${escapedForSingleQuotes}'`
 
