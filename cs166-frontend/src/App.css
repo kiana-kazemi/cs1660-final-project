@@ -50,6 +50,7 @@
   background: #f3f4f6;
   color: #111827;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .message.user p {

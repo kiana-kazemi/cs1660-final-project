@@ -10,49 +10,97 @@ type ChatMessage = {
 
 const awsApiUrl = import.meta.env.VITE_AWS_API_URL as string | undefined
 
-const parseAssistantContent = (payload: unknown): string | null => {
+const extractAssistantText = (payload: unknown): string | null => {
   if (typeof payload === 'string') {
-    return payload
+    const trimmedPayload = payload.trim()
+    if (!trimmedPayload) {
+      return null
+    }
+
+    try {
+      const parsedPayload = JSON.parse(trimmedPayload) as unknown
+      if (parsedPayload !== payload) {
+        return extractAssistantText(parsedPayload) || trimmedPayload
+      }
+    } catch {
+      return trimmedPayload
+    }
+
+    return trimmedPayload
   }
 
   if (!payload || typeof payload !== 'object') {
     return null
   }
 
-  const candidate = payload as {
-    response?: unknown
-    message?: unknown
-    reply?: unknown
-    body?: unknown
-    output?: unknown
-    status?: unknown
+  const record = payload as Record<string, unknown>
+
+  if (
+    'Output' in record &&
+    record.Output &&
+    typeof record.Output === 'object' &&
+    'Text' in (record.Output as Record<string, unknown>) &&
+    typeof (record.Output as Record<string, unknown>).Text === 'string'
+  ) {
+    return (record.Output as { Text: string }).Text
   }
 
-  if (typeof candidate.response === 'string') {
-    return candidate.response
+  const nestedTextCandidates = [
+    record.Text,
+    record.text,
+    record.message,
+    record.response,
+    record.reply,
+    record.body,
+    record.output,
+  ]
+
+  for (const candidate of nestedTextCandidates) {
+    const extracted = extractAssistantText(candidate)
+    if (extracted) {
+      return extracted
+    }
   }
 
-  if (typeof candidate.message === 'string') {
-    return candidate.message
+  if ('Output' in record) {
+    const extracted = extractAssistantText(record.Output)
+    if (extracted) {
+      return extracted
+    }
   }
 
-  if (typeof candidate.reply === 'string') {
-    return candidate.reply
+  if ('GeneratedResponsePart' in record) {
+    const extracted = extractAssistantText(record.GeneratedResponsePart)
+    if (extracted) {
+      return extracted
+    }
   }
 
-  if (typeof candidate.body === 'string') {
-    return candidate.body
+  if ('TextResponsePart' in record) {
+    const extracted = extractAssistantText(record.TextResponsePart)
+    if (extracted) {
+      return extracted
+    }
   }
 
-  if (typeof candidate.output === 'string') {
-    return candidate.output
+  if ('Citations' in record && Array.isArray(record.Citations)) {
+    for (const citation of record.Citations) {
+      const extracted = extractAssistantText(citation)
+      if (extracted) {
+        return extracted
+      }
+    }
   }
 
-  if (typeof candidate.status === 'string') {
-    return `Request status: ${candidate.status}`
+  if (typeof record.status === 'string') {
+    return `Request status: ${record.status}`
   }
 
   return null
+}
+
+const parseAssistantContent = (payload: unknown): string | null => {
+  return extractAssistantText(payload)
 }
 
 const initialMessages: ChatMessage[] = [
@@ -83,7 +131,6 @@ function App() {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const [lastCurlPreview, setLastCurlPreview] = useState('')
 
   useEffect(() => {
     if (auth.isLoading || auth.isAuthenticated) {
@@ -150,7 +197,6 @@ function App() {
       const curlPreview = `curl -X POST "${awsApiUrl}" -H "Content-Type: application/json" -d '${escapedForSingleQuotes}'`
 
       console.log(`About to call AWS API:\n${curlPreview}`)
-      setLastCurlPreview(curlPreview)
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -275,13 +321,6 @@ function App() {
             {isSending ? 'Sending...' : 'Send'}
           </button>
         </form>
-
-        {lastCurlPreview ? (
-          <div className="request-preview" aria-live="polite">
-            <div className="label">Last Request</div>
-            <pre>{lastCurlPreview}</pre>
-          </div>
-        ) : null}
       </section>
     </main>
   )
