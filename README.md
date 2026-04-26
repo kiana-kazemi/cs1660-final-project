@@ -71,6 +71,6 @@ Once you have completed your session, you can sign-out. To do so, simply select 
 
 ## Use of AI Tools
 
-We leveraged AI tools such as ChatGPT, Claude, and GitHub Copilot to accelerate development and streamline the integration of multiple AWS services. These tools were primarily used to generate boilerplate code, debug configuration issues such as CORS, IAM permissions, and API Gateway mappings, and guide the setup of complex workflows like Step Functions and Bedrock integration.
+We leveraged AI tools such as ChatGPT, Claude, and GitHub Copilot to accelerate development and streamline the integration of multiple AWS services. These tools were primarily used to generate boilerplate code, debug configuration issues such as CORS, IAM permissions, and API Gateway mappings, and guide the setup of complex workflows like Step Functions and Bedrock integration. We also used it at points to develop/debug the yml file to better understand how to integrate the logic for EC2 and the front-end.
 
 Importantly, all AI-generated suggestions were reviewed, tested, and adapted to fit our architecture, ensuring we fully understood how each component functioned within the system. AI assistance allowed us to focus more on high-level cloud design decisions and service orchestration, which were the core objectives of the project.
