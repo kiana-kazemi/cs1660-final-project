@@ -57,9 +57,12 @@ Now you can access the application.
 
 If you would like to ask a question about Aesop's fables, simply enter a question into the chatbot. Here, the chatbot will reference the 119 fables within the database to answer your question.
 
+<img width="744" height="634" alt="Project_Asking" src="https://github.com/user-attachments/assets/54a13821-d7cc-4ae4-90ee-b51820a28c88" />
+
+
 ### Referencing Previous Chats
 
-To reference previous chats, simply
+To reference previous chats, simply log back on, and you will see your previous chats in the messages.
 
 ### Signing Out
 
