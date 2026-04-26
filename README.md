@@ -1,5 +1,5 @@
-# CS1660: Group Final Project
-
+# FableBot
+CS1660: Group Final Project
 Chase Lahner, Cole Embleton, Nihal Ramesh, Kiana Kazemi
 
 ## Project Overview
