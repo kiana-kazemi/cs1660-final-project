@@ -1,4 +1,5 @@
 # CS1660: Group Final Project
+Chase Lahner, Cole Embleton, Nihal Ramesh, Kiana Kazemi
 
 ## Project Overview
 This project is basic full-stack RAG system web-application, allowing users to easily generate responses across saved, secure sessions. The web application is based on React JS, with a simple, chatbot interface. There users can create accounts, sign-on, and ask the chatbot specific questions. The RAG system works on a database of Aesop’s fables, allowing users to ask and generate responses based on 119 different fables. 
